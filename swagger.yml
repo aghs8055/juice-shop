@@ -1,52 +1,4216 @@
-openapi: 3.0.0
-servers:
-  -
-    url: /b2b/v2
+openapi: 3.0.3
 info:
-  version: 2.0.0
-  title: 'NextGen B2B API'
-  description: 'New & secure JSON-based API for our enterprise customers. (Deprecates previously offered XML-based endpoints)'
+  title: Juice Shop User Authentication API
+  description: |
+    API endpoints for user authentication and management in the OWASP Juice Shop application.
+    
+    This API provides functionality for user login, password management, security questions, and user profile information.
+    
+    ## Authentication
+    Most endpoints require authentication via JWT tokens. Include the token in the Authorization header as `Bearer <token>`.
+    
+    ## Rate Limiting
+    Some endpoints have rate limiting applied to prevent abuse.
+    
+    ## Security Notes
+    - Passwords are hashed before storage
+    - Sensitive data is masked in responses
+    - 2FA support is available for enhanced security
+  version: 1.0.0
+  contact:
+    name: OWASP Juice Shop Team
+    url: https://owasp.org/www-project-juice-shop/
   license:
     name: MIT
-    url: 'https://opensource.org/licenses/MIT'
-  contact:
-    name: B2B API Support
-tags:
-  -
-    name: Order
-    description: 'API for customer orders'
+    url: https://opensource.org/licenses/MIT
+
+servers:
+  - url: http://localhost:3000
+    description: Development server
+  - url: https://juice-shop.herokuapp.com
+    description: Production server
+
 paths:
-  /orders:
+  /rest/user/login:
     post:
-      operationId: createCustomerOrder
-      tags: [Order]
-      description: 'Create new customer order'
-      responses: { '200': { description: 'New customer order is created', content: { application/json: { schema: { $ref: '#/components/schemas/OrderConfirmation' } } } } }
-      requestBody: { content: { application/json: { schema: { $ref: '#/components/schemas/Order' } } }, description: 'Customer order to be placed' }
+      tags:
+        - Authentication
+      summary: User login
+      description: |
+        Authenticate a user with email and password credentials.
+        
+        Returns a JWT token for subsequent authenticated requests.
+        
+        If the user has 2FA enabled, returns a temporary token that must be used with the 2FA verification endpoint.
+      operationId: loginUser
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/LoginRequest'
+            examples:
+              regular_user:
+                summary: Regular user login
+                value:
+                  email: "user@juice-sh.op"
+                  password: "password123"
+              admin_user:
+                summary: Admin user login
+                value:
+                  email: "admin@juice-sh.op"
+                  password: "admin123"
+              testing_user:
+                summary: Testing user login (for challenges)
+                value:
+                  email: "testing@juice-sh.op"
+                  password: "IamUsedForTesting"
+      responses:
+        '200':
+          description: Login successful
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/LoginSuccessResponse'
+              examples:
+                success:
+                  summary: Successful login response
+                  value:
+                    authentication:
+                      token: "eyJhbGciOiJSUzI1NiIsInR5cCI6IkpXVCJ9.eyJpZCI6MSwiZW1haWwiOiJ1c2VyQHVpY2Utc2gub3AiLCJiaWQiOjEsImlhdCI6MTYzNDU2Nzg5MCwiZXhwIjoxNjM0NTk2NjkwfQ.example_signature"
+                      bid: 1
+                      umail: "user@juice-sh.op"
+        '401':
+          description: Authentication failed
+          content:
+            application/json:
+              schema:
+                oneOf:
+                  - $ref: '#/components/schemas/LoginErrorResponse'
+                  - $ref: '#/components/schemas/TotpRequiredResponse'
+              examples:
+                invalid_credentials:
+                  summary: Invalid email or password
+                  value:
+                    error: "Invalid email or password."
+                totp_required:
+                  summary: 2FA token required
+                  value:
+                    status: "totp_token_required"
+                    data:
+                      tmpToken: "eyJhbGciOiJSUzI1NiIsInR5cCI6IkpXVCJ9.eyJ1c2VySWQiOjEsInR5cGUiOiJwYXNzd29yZF92YWxpZF9uZWVkc19zZWNvbmRfZmFjdG9yX3Rva2VuIiwiaWF0IjoxNjM0NTY3ODkwfQ.example_signature"
+          required:
+            - tmpToken
+
+  /rest/user/change-password:
+    get:
+      tags:
+        - Password Management
+      summary: Change user password
+      description: |
+        Change the password for the currently authenticated user.
+        
+        Requires authentication via JWT token in Authorization header.
+        
+        The current password is optional for certain users (e.g., Bender).
+      operationId: changePassword
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: current
+          in: query
+          description: Current password (optional for some users)
+          required: false
+          schema:
+            type: string
+            minLength: 1
+        - name: new
+          in: query
+          description: New password
+          required: true
+          schema:
+            type: string
+            minLength: 1
+            maxLength: 40
+        - name: repeat
+          in: query
+          description: New password confirmation
+          required: true
+          schema:
+            type: string
+            minLength: 1
+            maxLength: 40
+      responses:
+        '200':
+          description: Password changed successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ChangePasswordResponse'
+              examples:
+                success:
+                  summary: Password changed successfully
+                  value:
+                    user:
+                      id: 1
+                      email: "user@juice-sh.op"
+                      username: "user"
+                      role: "customer"
+                      password: "newhashedpassword"
+                      totpSecret: ""
+                      lastLoginIp: "192.168.1.1"
+                      profileImage: "default.svg"
+                      createdAt: "2023-01-01T00:00:00.000Z"
+                      updatedAt: "2023-01-01T00:00:00.000Z"
+        '401':
+          description: Password change failed
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              examples:
+                empty_password:
+                  summary: Password cannot be empty
+                  value:
+                    error: "Password cannot be empty."
+                password_mismatch:
+                  summary: New and repeated password do not match
+                  value:
+                    error: "New and repeated password do not match."
+                wrong_current_password:
+                  summary: Current password is not correct
+                  value:
+                    error: "Current password is not correct."
+        '500':
+          description: Internal server error or unauthorized access
+          content:
+            text/html:
+              schema:
+                type: string
+              example: |
+                <h1>OWASP Juice Shop (Express 4.18.2)</h1>
+                <h2>Error: Blocked illegal activity by 192.168.1.1</h2>
+
+  /rest/user/reset-password:
+    post:
+      tags:
+        - Password Management
+      summary: Reset user password
+      description: |
+        Reset a user's password using their email and security question answer.
+        
+        This endpoint is rate-limited to prevent abuse.
+      operationId: resetPassword
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ResetPasswordRequest'
+            examples:
+              reset_request:
+                summary: Password reset request
+                value:
+                  email: "user@juice-sh.op"
+                  answer: "John"
+                  new: "newpassword123"
+                  repeat: "newpassword123"
+      responses:
+        '200':
+          description: Password reset successful
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ResetPasswordResponse'
+              examples:
+                success:
+                  summary: Password reset successfully
+                  value:
+                    user:
+                      id: 1
+                      email: "user@juice-sh.op"
+                      username: "user"
+                      role: "customer"
+                      password: "newhashedpassword"
+                      totpSecret: ""
+                      lastLoginIp: "192.168.1.1"
+                      profileImage: "default.svg"
+                      createdAt: "2023-01-01T00:00:00.000Z"
+                      updatedAt: "2023-01-01T00:00:00.000Z"
+        '401':
+          description: Password reset failed
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              examples:
+                empty_password:
+                  summary: Password cannot be empty
+                  value:
+                    error: "Password cannot be empty."
+                password_mismatch:
+                  summary: New and repeated password do not match
+                  value:
+                    error: "New and repeated password do not match."
+                wrong_answer:
+                  summary: Wrong answer to security question
+                  value:
+                    error: "Wrong answer to security question."
+        '500':
+          description: Internal server error or unauthorized access
+          content:
+            text/html:
+              schema:
+                type: string
+              example: |
+                <h1>OWASP Juice Shop (Express 4.18.2)</h1>
+                <h2>Error: Blocked illegal activity by 192.168.1.1</h2>
+
+  /rest/user/security-question:
+    get:
+      tags:
+        - Security Questions
+      summary: Get security question for user
+      description: |
+        Retrieve the security question associated with a user's email address.
+        
+        Used in the password reset process.
+      operationId: getSecurityQuestion
+      parameters:
+        - name: email
+          in: query
+          description: User's email address
+          required: true
+          schema:
+            type: string
+            format: email
+      responses:
+        '200':
+          description: Security question retrieved successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SecurityQuestionResponse'
+              examples:
+                with_question:
+                  summary: User has a security question
+                  value:
+                    question:
+                      id: 1
+                      question: "Your eldest siblings middle name?"
+                no_question:
+                  summary: User has no security question
+                  value: {}
+        '500':
+          description: Internal server error
+          content:
+            text/html:
+              schema:
+                type: string
+              example: |
+                <h1>OWASP Juice Shop (Express 4.18.2)</h1>
+                <h2>Error: WHERE parameter "email" has invalid "undefined" value</h2>
+
+  /rest/user/whoami:
+    get:
+      tags:
+        - User Profile
+      summary: Get current user information
+      description: |
+        Retrieve information about the currently authenticated user.
+        
+        Requires authentication via JWT token in cookies or Authorization header.
+        
+        Supports JSONP for cross-origin requests (for challenge purposes).
+      operationId: getCurrentUser
+      parameters:
+        - name: callback
+          in: query
+          description: JSONP callback function name
+          required: false
+          schema:
+            type: string
+      responses:
+        '200':
+          description: User information retrieved successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CurrentUserResponse'
+              examples:
+                authenticated_user:
+                  summary: Authenticated user information
+                  value:
+                    user:
+                      id: 1
+                      email: "user@juice-sh.op"
+                      lastLoginIp: "192.168.1.1"
+                      profileImage: "default.svg"
+                unauthenticated_user:
+                  summary: No authenticated user
+                  value:
+                    user:
+                      id: undefined
+                      email: undefined
+                      lastLoginIp: undefined
+                      profileImage: undefined
+        '500':
+          description: Internal server error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /rest/user/authentication-details:
+    get:
+      tags:
+        - Administration
+      summary: Get all users authentication details
+      description: |
+        Retrieve authentication details for all users in the system.
+        
+        Requires authentication and appropriate permissions.
+        
+        Sensitive data like passwords and TOTP secrets are masked with asterisks.
+        Includes last login time for users with active sessions.
+      operationId: getAuthenticationDetails
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: Authentication details retrieved successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AuthenticationDetailsResponse'
+              examples:
+                all_users:
+                  summary: All users with masked sensitive data
+                  value:
+                    status: "success"
+                    data:
+                      - id: 1
+                        email: "admin@juice-sh.op"
+                        username: "admin"
+                        role: "admin"
+                        password: "********************************"
+                        totpSecret: ""
+                        lastLoginIp: "192.168.1.1"
+                        profileImage: "default.svg"
+                        lastLoginTime: 1634567890
+                        createdAt: "2023-01-01T00:00:00.000Z"
+                        updatedAt: "2023-01-01T00:00:00.000Z"
+                      - id: 2
+                        email: "user@juice-sh.op"
+                        username: "user"
+                        role: "customer"
+                        password: "********************************"
+                        totpSecret: ""
+                        lastLoginIp: "192.168.1.2"
+                        profileImage: "default.svg"
+                        lastLoginTime: null
+                        createdAt: "2023-01-01T00:00:00.000Z"
+                        updatedAt: "2023-01-01T00:00:00.000Z"
+        '401':
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '500':
+          description: Internal server error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /rest/products/search:
+    get:
+      tags:
+        - Products
+      summary: Search products
+      description: |
+        Search for products by name or description.
+        
+        The search is case-insensitive and uses SQL LIKE queries.
+        Search criteria is limited to 200 characters for security.
+        
+        **Security Note**: This endpoint is vulnerable to SQL injection attacks
+        and is used for security training purposes.
+      operationId: searchProducts
+      parameters:
+        - name: q
+          in: query
+          description: Search criteria for product name or description
+          required: false
+          schema:
+            type: string
+            maxLength: 200
+      responses:
+        '200':
+          description: Products found successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ProductSearchResponse'
+              examples:
+                with_results:
+                  summary: Products found
+                  value:
+                    status: "success"
+                    data:
+                      - id: 1
+                        name: "Apple Juice (1000ml)"
+                        description: "Sweet apple juice contained in a large bottle"
+                        price: 1.99
+                        deluxePrice: 1.79
+                        image: "apple_juice.jpg"
+                        createdAt: "2023-01-01T00:00:00.000Z"
+                        updatedAt: "2023-01-01T00:00:00.000Z"
+                      - id: 2
+                        name: "Orange Juice (1000ml)"
+                        description: "Fresh orange juice contained in a large bottle"
+                        price: 2.99
+                        deluxePrice: 2.69
+                        image: "orange_juice.jpg"
+                        createdAt: "2023-01-01T00:00:00.000Z"
+                        updatedAt: "2023-01-01T00:00:00.000Z"
+                no_results:
+                  summary: No products found
+                  value:
+                    status: "success"
+                    data: []
+        '500':
+          description: Internal server error or SQL injection detected
+          content:
+            text/html:
+              schema:
+                type: string
+              example: |
+                <h1>OWASP Juice Shop (Express 4.18.2)</h1>
+                <h2>SQLITE_ERROR: near ";": syntax error</h2>
+
+  /rest/basket/{id}:
+    get:
+      tags:
+        - Basket
+      summary: Get basket by ID
+      description: |
+        Retrieve a shopping basket by its ID.
+        
+        Requires authentication via JWT token.
+        Users can only access their own basket, but the endpoint is vulnerable
+        to horizontal privilege escalation attacks for training purposes.
+      operationId: getBasket
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          description: Basket ID
+          required: true
+          schema:
+            type: integer
+            minimum: 1
+      responses:
+        '200':
+          description: Basket retrieved successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/BasketResponse'
+              examples:
+                with_products:
+                  summary: Basket with products
+                  value:
+                    status: "success"
+                    data:
+                      id: 1
+                      UserId: 1
+                      coupon: null
+                      createdAt: "2023-01-01T00:00:00.000Z"
+                      updatedAt: "2023-01-01T00:00:00.000Z"
+                      Products:
+                        - id: 1
+                          name: "Apple Juice (1000ml)"
+                          description: "Sweet apple juice contained in a large bottle"
+                          price: 1.99
+                          deluxePrice: 1.79
+                          image: "apple_juice.jpg"
+                          BasketItem:
+                            id: 1
+                            quantity: 2
+                            createdAt: "2023-01-01T00:00:00.000Z"
+                            updatedAt: "2023-01-01T00:00:00.000Z"
+                empty_basket:
+                  summary: Empty basket
+                  value:
+                    status: "success"
+                    data:
+                      id: 1
+                      UserId: 1
+                      coupon: null
+                      createdAt: "2023-01-01T00:00:00.000Z"
+                      updatedAt: "2023-01-01T00:00:00.000Z"
+                      Products: []
+        '401':
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '500':
+          description: Internal server error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /rest/basket/{id}/checkout:
+    post:
+      tags:
+        - Orders
+      summary: Place order from basket
+      description: |
+        Place an order from the specified basket.
+        
+        Requires authentication via JWT token.
+        The basket will be cleared after successful order placement.
+        A PDF order confirmation will be generated and stored.
+        Bonus points will be added to the user's wallet.
+      operationId: placeOrder
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          description: Basket ID
+          required: true
+          schema:
+            type: integer
+            minimum: 1
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/OrderRequest'
+            examples:
+              with_payment:
+                summary: Order with payment details
+                value:
+                  UserId: 1
+                  orderDetails:
+                    paymentId: "card_123"
+                    addressId: 1
+                    deliveryMethodId: 1
+                  couponData: "base64_encoded_coupon_data"
+        '200':
+          description: Order placed successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/OrderResponse'
+              examples:
+                success:
+                  summary: Order confirmation
+                  value:
+                    orderConfirmation: "a1b2-3c4d5e6f7890abcd"
+        '400':
+          description: Invalid basket or insufficient wallet balance
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              examples:
+                insufficient_balance:
+                  summary: Insufficient wallet balance
+                  value:
+                    error: "Insufficient wallet balance."
+        '401':
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '500':
+          description: Internal server error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /rest/basket/{id}/coupon/{coupon}:
+    put:
+      tags:
+        - Basket
+      summary: Apply coupon to basket
+      description: |
+        Apply a discount coupon to the specified basket.
+        
+        Requires authentication via JWT token.
+        The coupon will be validated and the discount applied if valid.
+      operationId: applyCoupon
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          description: Basket ID
+          required: true
+          schema:
+            type: integer
+            minimum: 1
+        - name: coupon
+          in: path
+          description: Coupon code (URL encoded)
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Coupon applied successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CouponResponse'
+              examples:
+                valid_coupon:
+                  summary: Valid coupon applied
+                  value:
+                    discount: 10
+                forged_coupon:
+                  summary: Forged coupon applied
+                  value:
+                    discount: 80
+        '404':
+          description: Invalid coupon
+          content:
+            text/plain:
+              schema:
+                type: string
+              example: "Invalid coupon."
+        '401':
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '500':
+          description: Internal server error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /rest/admin/application-version:
+    get:
+      tags:
+        - Administration
+      summary: Get application version
+      description: |
+        Retrieve the current application version.
+        
+        The version is returned only if `application.showVersionNumber` is enabled
+        in the configuration, otherwise an empty string is returned.
+      operationId: getApplicationVersion
+      responses:
+        '200':
+          description: Application version retrieved successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AppVersionResponse'
+              examples:
+                with_version:
+                  summary: Version shown when enabled
+                  value:
+                    version: "15.1.0"
+                without_version:
+                  summary: Empty version when disabled
+                  value:
+                    version: ""
+
+  /rest/admin/application-configuration:
+    get:
+      tags:
+        - Administration
+      summary: Get application configuration
+      description: |
+        Retrieve the complete application configuration.
+        
+        Returns all configuration settings including server, application,
+        challenges, hacking instructor, products, memories, and CTF settings.
+      operationId: getApplicationConfiguration
+      responses:
+        '200':
+          description: Application configuration retrieved successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AppConfigurationResponse'
+              examples:
+                full_config:
+                  summary: Complete application configuration
+                  value:
+                    config:
+                      server:
+                        port: 3000
+                      application:
+                        domain: "juice-shop.herokuapp.com"
+                        name: "OWASP Juice Shop"
+                        logo: "juicy_logo.png"
+                        favicon: "favicon.ico"
+                        theme: "bluegrey-lightgreen"
+                        showVersionNumber: true
+                        showGitHubLinks: true
+                        localBackupEnabled: false
+                        numberOfRandomFakeUsers: 0
+                        altcoinName: "¤"
+                        privacyContactEmail: "privacy@juice-sh.op"
+                        social:
+                          blueSkyUrl: "https://bsky.app/profile/owaspjuiceshop.bsky.social"
+                          mastodonUrl: "https://infosec.exchange/@juiceshop"
+                          twitterUrl: "https://twitter.com/owasp_juiceshop"
+                          facebookUrl: "https://www.facebook.com/owasp.juiceshop"
+                          slackUrl: "https://owasp.slack.com/messages/C0HS7KGCB"
+                          redditUrl: "https://www.reddit.com/r/owasp_juiceshop"
+                          pressKitUrl: "https://github.com/juice-shop/juice-shop-press-kit"
+                          nftUrl: "https://opensea.io/collection/owasp-juice-shop-nft"
+                          questionnaireUrl: "https://forms.gle/3HBFJVbvqjZzmQvs9"
+                        recyclePage:
+                          topProductImage: "apple_pressings.jpg"
+                          bottomProductImage: "orange_juice_1l.jpg"
+                        welcomeBanner:
+                          showOnFirstStart: true
+                          title: "Welcome to OWASP Juice Shop!"
+                          message: "Probably the most modern and sophisticated insecure web application"
+                        cookieConsent:
+                          message: "We use cookies to ensure you get the best experience on our website."
+                          dismissText: "Accept"
+                          linkText: "Learn more"
+                          linkUrl: "https://owasp.org/www-project-juice-shop/"
+                        securityTxt:
+                          contact: "mailto:security@juice-sh.op"
+                          encryption: "https://keybase.io/owasp_juiceshop/pgp_keys.asc"
+                          acknowledgements: "https://hackerone.com/owasp_juiceshop"
+                        promotion:
+                          video: "https://www.youtube.com/embed/actBookW7zYQ"
+                          subtitles: "https://raw.githubusercontent.com/juice-shop/juice-shop/master/frontend/src/assets/public/videos/subtitles.vtt"
+                        easterEggPlanet:
+                          name: "Juicy Prime"
+                          overlayMap: "assets/public/images/planets/juicy_prime.jpg"
+                        googleOauth:
+                          clientId: "1005568560502-6hm16le8b3hctd1q2j2rmqpb1aeb6glr.apps.googleusercontent.com"
+                          authorizedRedirects:
+                            - uri: "http://localhost:3000"
+                              proxy: null
+                      challenges:
+                        showSolvedNotifications: true
+                        showHints: boolean
+                        showMitigations: boolean
+                        codingChallengesEnabled: "always"
+                        restrictToTutorialsFirst: false
+                        safetyMode: "unsafe"
+                        overwriteUrlForProductTamperingChallenge: ""
+                        showFeedbackButtons: true
+                      hackingInstructor:
+                        isEnabled: true
+                        avatarImage: "assets/public/images/hackingInstructor/hacker.png"
+                      products: []
+                      memories: []
+                      ctf:
+                        showFlagsInNotifications: true
+                        showCountryDetailsInNotifications: "none"
+                        countryMapping: []
+
+  /rest/repeat-notification:
+    get:
+      tags:
+        - Challenges
+      summary: Repeat challenge notification
+      description: |
+        Trigger a repeat notification for a specific challenge.
+        
+        If the challenge is solved, it will send the notification again.
+        Used for training purposes to allow users to re-trigger challenge
+        notifications.
+      operationId: repeatNotification
+      parameters:
+        - name: challenge
+          in: query
+          description: Challenge name (URL encoded)
+          required: false
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Notification triggered successfully
+          content:
+            text/plain:
+              schema:
+                type: string
+              example: ""
+
+  /rest/continue-code:
+    get:
+      tags:
+        - Challenges
+      summary: Get continue code for solved challenges
+      description: |
+        Retrieve a continue code representing all currently solved challenges.
+        
+        The continue code is a hashid-encoded string that can be used to restore
+        challenge progress on another instance or after a reset.
+      operationId: getContinueCode
+      responses:
+        '200':
+          description: Continue code retrieved successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ContinueCodeResponse'
+              examples:
+                with_solved_challenges:
+                  summary: Continue code for solved challenges
+                  value:
+                    continueCode: "yXjv6Z5jWJnzD6a3YvmwPRXK7roAyzHDde2Og19yEN84plqxkMBbLVQrDeoY"
+                no_solved_challenges:
+                  summary: No solved challenges
+                  value:
+                    continueCode: undefined
+
+  /rest/continue-code-findIt:
+    get:
+      tags:
+        - Challenges
+      summary: Get continue code for Find It challenges
+      description: |
+        Retrieve a continue code representing all challenges that have completed
+        the "Find It" phase of coding challenges.
+        
+        The continue code is a hashid-encoded string specific to Find It progress.
+      operationId: getContinueCodeFindIt
+      responses:
+        '200':
+          description: Continue code retrieved successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ContinueCodeResponse'
+              examples:
+                with_findit_progress:
+                  summary: Continue code for Find It progress
+                  value:
+                    continueCode: "Xg9oK0VdbW5g1KX9G7JYnqLpz3rAPBh6p4eRlkDM6EaBON2QoPmxjyvwMrP6"
+                no_findit_progress:
+                  summary: No Find It progress
+                  value:
+                    continueCode: undefined
+
+  /rest/continue-code-fixIt:
+    get:
+      tags:
+        - Challenges
+      summary: Get continue code for Fix It challenges
+      description: |
+        Retrieve a continue code representing all challenges that have completed
+        the "Fix It" phase of coding challenges.
+        
+        The continue code is a hashid-encoded string specific to Fix It progress.
+      operationId: getContinueCodeFixIt
+      responses:
+        '200':
+          description: Continue code retrieved successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ContinueCodeResponse'
+              examples:
+                with_fixit_progress:
+                  summary: Continue code for Fix It progress
+                  value:
+                    continueCode: "y28BEPE2k3yRrdz5p6DGqJONnj41n5UEWawYWgBMoVmL79bKZ8Qve0Xl5QLW"
+                no_fixit_progress:
+                  summary: No Fix It progress
+                  value:
+                    continueCode: undefined
+
+  /rest/continue-code-findIt/apply/{continueCode}:
+    put:
+      tags:
+        - Challenges
+      summary: Apply Find It continue code
+      description: |
+        Apply a continue code to restore Find It challenge progress.
+        
+        The continue code must be a valid hashid-encoded string. Invalid codes
+        will return a 404 error.
+      operationId: applyContinueCodeFindIt
+      parameters:
+        - name: continueCode
+          in: path
+          description: Continue code for Find It challenges
+          required: true
+          schema:
+            type: string
+            pattern: '^[a-zA-Z0-9]+$'
+      responses:
+        '200':
+          description: Progress restored successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RestoreProgressResponse'
+              examples:
+                success:
+                  summary: Progress restored
+                  value:
+                    data: "2 solved challenges have been restored."
+        '404':
+          description: Invalid continue code
+          content:
+            text/plain:
+              schema:
+                type: string
+              example: "Invalid continue code."
+
+  /rest/continue-code-fixIt/apply/{continueCode}:
+    put:
+      tags:
+        - Challenges
+      summary: Apply Fix It continue code
+      description: |
+        Apply a continue code to restore Fix It challenge progress.
+        
+        The continue code must be a valid hashid-encoded string. Invalid codes
+        will return a 404 error.
+      operationId: applyContinueCodeFixIt
+      parameters:
+        - name: continueCode
+          in: path
+          description: Continue code for Fix It challenges
+          required: true
+          schema:
+            type: string
+            pattern: '^[a-zA-Z0-9]+$'
+      responses:
+        '200':
+          description: Progress restored successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RestoreProgressResponse'
+              examples:
+                success:
+                  summary: Progress restored
+                  value:
+                    data: "2 solved challenges have been restored."
+        '404':
+          description: Invalid continue code
+          content:
+            text/plain:
+              schema:
+                type: string
+              example: "Invalid continue code."
+
 components:
   securitySchemes:
     bearerAuth:
       type: http
       scheme: bearer
       bearerFormat: JWT
+      description: JWT token obtained from login endpoint
+
   schemas:
-    Order:
-      required: [cid]
-      properties: { cid: { type: string, uniqueItems: true, example: JS0815DE }, orderLines: { $ref: '#/components/schemas/OrderLines' }, orderLinesData: { $ref: '#/components/schemas/OrderLinesData' } }
-    OrderConfirmation:
-      required: [cid, orderNo, paymentDue]
-      properties: { cid: { type: string, uniqueItems: true, example: JS0815DE }, orderNo: { type: string, uniqueItems: true, example: 3d06ac5e1bdf39d26392f8100f124742 }, paymentDue: { description: 'All payments are due 14 days after order placement', type: string, format: date, example: '2018-01-19' } }
-    OrderLine:
-      description: 'Order line in default JSON format'
-      required: [productId, quantity]
-      properties: { productId: { type: integer, example: 8 }, quantity: { type: integer, minimum: 1, example: 500 }, customerReference: { type: string, example: PO0000001 } }
-    OrderLines:
-      type: array
-      items: { $ref: '#/components/schemas/OrderLine' }
-    OrderLinesData:
-      description: 'Order line(s) in customer specific JSON format'
-      type: string
-      example: '[{"productId": 12,"quantity": 10000,"customerReference": ["PO0000001.2", "SM20180105|042"],"couponCode": "pes[Bh.u*t"},{"productId": 13,"quantity": 2000,"customerReference": "PO0000003.4"}]'
-security:
-  -
-    bearerAuth: []
+    LoginRequest:
+      type: object
+      required:
+        - email
+        - password
+      properties:
+        email:
+          type: string
+          format: email
+          description: User's email address
+          example: "user@juice-sh.op"
+        password:
+          type: string
+          description: User's password
+          minLength: 1
+          example: "password123"
+      additionalProperties: false
+
+    LoginSuccessResponse:
+      type: object
+      properties:
+        authentication:
+          type: object
+          properties:
+            token:
+              type: string
+              description: JWT token for authentication
+              example: "eyJhbGciOiJSUzI1NiIsInR5cCI6IkpXVCJ9.eyJpZCI6MSwiZW1haWwiOiJ1c2VyQHVpY2Utc2gub3AiLCJiaWQiOjEsImlhdCI6MTYzNDU2Nzg5MCwiZXhwIjoxNjM0NTk2NjkwfQ.example_signature"
+            bid:
+              type: integer
+              description: User's basket ID
+              example: 1
+            umail:
+              type: string
+              format: email
+              description: User's email address
+              example: "user@juice-sh.op"
+          required:
+            - token
+            - bid
+            - umail
+
+    LoginErrorResponse:
+      type: object
+      properties:
+        error:
+          type: string
+          description: Error message
+          example: "Invalid email or password."
+
+    TotpRequiredResponse:
+      type: object
+      properties:
+        status:
+          type: string
+          enum: [totp_token_required]
+          description: Indicates that 2FA token is required
+          example: "totp_token_required"
+        data:
+          type: object
+          properties:
+            tmpToken:
+              type: string
+              description: Temporary token for 2FA verification
+              example: "eyJhbGciOiJSUzI1NiIsInR5cCI6IkpXVCJ9.eyJ1c2VySWQiOjEsInR5cGUiOiJwYXNzd29yZF92YWxpZF9uZWVkc19zZWNvbmRfZmFjdG9yX3Rva2VuIiwiaWF0IjoxNjM0NTY3ODkwfQ.example_signature"
+          required:
+            - tmpToken
+
+    ChangePasswordResponse:
+      type: object
+      properties:
+        user:
+          $ref: '#/components/schemas/User'
+
+    ResetPasswordRequest:
+      type: object
+      required:
+        - email
+        - answer
+        - new
+        - repeat
+      properties:
+        email:
+          type: string
+          format: email
+          description: User's email address
+          example: "user@juice-sh.op"
+        answer:
+          type: string
+          description: Answer to security question
+          example: "John"
+        new:
+          type: string
+          description: New password
+          minLength: 1
+          example: "newpassword123"
+        repeat:
+          type: string
+          description: New password confirmation
+          minLength: 1
+          example: "newpassword123"
+      additionalProperties: false
+
+    ResetPasswordResponse:
+      type: object
+      properties:
+        user:
+          $ref: '#/components/schemas/User'
+
+    SecurityQuestionResponse:
+      type: object
+      properties:
+        question:
+          oneOf:
+            - $ref: '#/components/schemas/SecurityQuestion'
+            - type: null
+          description: Security question object or null if no question exists
+
+    SecurityQuestion:
+      type: object
+      properties:
+        id:
+          type: integer
+          description: Security question ID
+          example: 1
+        question:
+          type: string
+          description: Security question text
+          example: "Your eldest siblings middle name?"
+      required:
+        - id
+        - question
+
+    CurrentUserResponse:
+      type: object
+      properties:
+        user:
+          type: object
+          properties:
+            id:
+              oneOf:
+                - type: integer
+                - type: null
+              description: User ID or null if not authenticated
+              example: 1
+            email:
+              oneOf:
+                - type: string
+                - type: null
+              description: User's email address or null if not authenticated
+              example: "user@juice-sh.op"
+            lastLoginIp:
+              oneOf:
+                - type: string
+                - type: null
+              description: User's last login IP address or null if not authenticated
+              example: "192.168.1.1"
+            profileImage:
+              oneOf:
+                - type: string
+                - type: null
+              description: User's profile image filename or null if not authenticated
+              example: "default.svg"
+          required:
+            - id
+            - email
+            - lastLoginIp
+            - profileImage
+
+    AuthenticationDetailsResponse:
+      type: object
+      properties:
+        status:
+          type: string
+          enum: [success]
+          description: Response status
+          example: "success"
+        data:
+          type: array
+          items:
+            $ref: '#/components/schemas/UserWithAuthDetails'
+          description: Array of users with authentication details
+
+    UserWithAuthDetails:
+      allOf:
+        - $ref: '#/components/schemas/User'
+        - type: object
+          properties:
+            password:
+              type: string
+              description: Masked password (asterisks)
+              example: "********************************"
+            totpSecret:
+              type: string
+              description: Masked TOTP secret (asterisks) or empty string
+              example: "********************************"
+            lastLoginTime:
+              oneOf:
+                - type: integer
+                - type: null
+              description: Last login timestamp or null if no active session
+              example: 1634567890
+
+    User:
+      type: object
+      properties:
+        id:
+          type: integer
+          description: User ID
+          example: 1
+        email:
+          type: string
+          format: email
+          description: User's email address
+          example: "user@juice-sh.op"
+        username:
+          type: string
+          description: User's username
+          example: "user"
+        role:
+          type: string
+          enum: [admin, customer, accounting]
+          description: User's role
+          example: "customer"
+        lastLoginIp:
+          type: string
+          description: User's last login IP address
+          example: "192.168.1.1"
+        profileImage:
+          type: string
+          description: User's profile image filename
+          example: "default.svg"
+        createdAt:
+          type: string
+          format: date-time
+          description: User creation timestamp
+          example: "2023-01-01T00:00:00.000Z"
+        updatedAt:
+          type: string
+          format: date-time
+          description: User last update timestamp
+          example: "2023-01-01T00:00:00.000Z"
+      required:
+        - id
+        - email
+        - username
+        - role
+        - lastLoginIp
+        - profileImage
+        - createdAt
+        - updatedAt
+
+    ErrorResponse:
+      type: object
+      properties:
+        error:
+          type: string
+          description: Error message
+          example: "An error occurred"
+
+    ProductSearchResponse:
+      type: object
+      properties:
+        status:
+          type: string
+          enum: [success]
+          description: Response status
+          example: "success"
+        data:
+          type: array
+          items:
+            $ref: '#/components/schemas/Product'
+          description: Array of products matching the search criteria
+
+    Product:
+      type: object
+      properties:
+        id:
+          type: integer
+          description: Product ID
+          example: 1
+        name:
+          type: string
+          description: Product name
+          example: "Apple Juice (1000ml)"
+        description:
+          type: string
+          description: Product description
+          example: "Sweet apple juice contained in a large bottle"
+        price:
+          type: number
+          format: float
+          description: Regular price
+          example: 1.99
+        deluxePrice:
+          type: number
+          format: float
+          description: Deluxe member price
+          example: 1.79
+        image:
+          type: string
+          description: Product image filename
+          example: "apple_juice.jpg"
+        createdAt:
+          type: string
+          format: date-time
+          description: Product creation timestamp
+          example: "2023-01-01T00:00:00.000Z"
+        updatedAt:
+          type: string
+          format: date-time
+          description: Product last update timestamp
+          example: "2023-01-01T00:00:00.000Z"
+      required:
+        - id
+        - name
+        - description
+        - price
+        - deluxePrice
+        - image
+        - createdAt
+        - updatedAt
+
+    BasketResponse:
+      type: object
+      properties:
+        status:
+          type: string
+          enum: [success]
+          description: Response status
+          example: "success"
+        data:
+          $ref: '#/components/schemas/Basket'
+
+    Basket:
+      type: object
+      properties:
+        id:
+          type: integer
+          description: Basket ID
+          example: 1
+        UserId:
+          type: integer
+          description: User ID who owns the basket
+          example: 1
+        coupon:
+          oneOf:
+            - type: string
+            - type: null
+          description: Applied coupon code or null
+          example: "SAVE10"
+        createdAt:
+          type: string
+          format: date-time
+          description: Basket creation timestamp
+          example: "2023-01-01T00:00:00.000Z"
+        updatedAt:
+          type: string
+          format: date-time
+          description: Basket last update timestamp
+          example: "2023-01-01T00:00:00.000Z"
+        Products:
+          type: array
+          items:
+            allOf:
+              - $ref: '#/components/schemas/Product'
+              - type: object
+                properties:
+                  BasketItem:
+                    $ref: '#/components/schemas/BasketItem'
+          description: Products in the basket
+      required:
+        - id
+        - UserId
+        - coupon
+        - createdAt
+        - updatedAt
+        - Products
+
+    BasketItem:
+      type: object
+      properties:
+        id:
+          type: integer
+          description: Basket item ID
+          example: 1
+        quantity:
+          type: integer
+          description: Quantity of the product
+          example: 2
+        createdAt:
+          type: string
+          format: date-time
+          description: Basket item creation timestamp
+          example: "2023-01-01T00:00:00.000Z"
+        updatedAt:
+          type: string
+          format: date-time
+          description: Basket item last update timestamp
+          example: "2023-01-01T00:00:00.000Z"
+      required:
+        - id
+        - quantity
+        - createdAt
+        - updatedAt
+
+    OrderRequest:
+      type: object
+      properties:
+        UserId:
+          type: integer
+          description: User ID placing the order
+          example: 1
+        orderDetails:
+          type: object
+          properties:
+            paymentId:
+              type: string
+              description: Payment method ID or 'wallet' for wallet payment
+              example: "card_123"
+            addressId:
+              type: integer
+              description: Shipping address ID
+              example: 1
+            deliveryMethodId:
+              type: integer
+              description: Delivery method ID
+              example: 1
+          description: Order details including payment and shipping information
+        couponData:
+          type: string
+          description: Base64 encoded coupon data
+          example: "YmFzZTY0X2VuY29kZWRfY291cG9uX2RhdGE="
+      additionalProperties: false
+
+    OrderResponse:
+      type: object
+      properties:
+        orderConfirmation:
+          type: string
+          description: Order confirmation ID
+          example: "a1b2-3c4d5e6f7890abcd"
+      required:
+        - orderConfirmation
+
+    CouponResponse:
+      type: object
+      properties:
+        discount:
+          type: integer
+          description: Discount percentage
+          minimum: 0
+          maximum: 100
+          example: 10
+      required:
+        - discount
+
+    AppVersionResponse:
+      type: object
+      properties:
+        version:
+          type: string
+          description: Application version or empty string if version display is disabled
+          example: "15.1.0"
+      required:
+        - version
+
+    AppConfigurationResponse:
+      type: object
+      properties:
+        config:
+          type: object
+          description: Complete application configuration object
+          properties:
+            server:
+              type: object
+              properties:
+                port:
+                  type: integer
+                  description: Server port number
+                  example: 3000
+            application:
+              type: object
+              properties:
+                domain:
+                  type: string
+                  description: Application domain
+                  example: "juice-shop.herokuapp.com"
+                name:
+                  type: string
+                  description: Application name
+                  example: "OWASP Juice Shop"
+                logo:
+                  type: string
+                  description: Application logo filename
+                  example: "juicy_logo.png"
+                favicon:
+                  type: string
+                  description: Application favicon filename
+                  example: "favicon.ico"
+                theme:
+                  type: string
+                  description: Application theme
+                  example: "bluegrey-lightgreen"
+                showVersionNumber:
+                  type: boolean
+                  description: Whether to show version number
+                  example: true
+                showGitHubLinks:
+                  type: boolean
+                  description: Whether to show GitHub links
+                  example: true
+                localBackupEnabled:
+                  type: boolean
+                  description: Whether local backup is enabled
+                  example: false
+                numberOfRandomFakeUsers:
+                  type: integer
+                  description: Number of random fake users
+                  example: 0
+                altcoinName:
+                  type: string
+                  description: Alternative coin name
+                  example: "¤"
+                privacyContactEmail:
+                  type: string
+                  description: Privacy contact email
+                  example: "privacy@juice-sh.op"
+                social:
+                  type: object
+                  description: Social media URLs
+                  properties:
+                    blueSkyUrl:
+                      type: string
+                      example: "https://bsky.app/profile/owaspjuiceshop.bsky.social"
+                    mastodonUrl:
+                      type: string
+                      example: "https://infosec.exchange/@juiceshop"
+                    twitterUrl:
+                      type: string
+                      example: "https://twitter.com/owasp_juiceshop"
+                    facebookUrl:
+                      type: string
+                      example: "https://www.facebook.com/owasp.juiceshop"
+                    slackUrl:
+                      type: string
+                      example: "https://owasp.slack.com/messages/C0HS7KGCB"
+                    redditUrl:
+                      type: string
+                      example: "https://www.reddit.com/r/owasp_juiceshop"
+                    pressKitUrl:
+                      type: string
+                      example: "https://github.com/juice-shop/juice-shop-press-kit"
+                    nftUrl:
+                      type: string
+                      example: "https://opensea.io/collection/owasp-juice-shop-nft"
+                    questionnaireUrl:
+                      type: string
+                      example: "https://forms.gle/3HBFJVbvqjZzmQvs9"
+                recyclePage:
+                  type: object
+                  properties:
+                    topProductImage:
+                      type: string
+                      example: "apple_pressings.jpg"
+                    bottomProductImage:
+                      type: string
+                      example: "orange_juice_1l.jpg"
+                welcomeBanner:
+                  type: object
+                  properties:
+                    showOnFirstStart:
+                      type: boolean
+                      example: true
+                    title:
+                      type: string
+                      example: "Welcome to OWASP Juice Shop!"
+                    message:
+                      type: string
+                      example: "Probably the most modern and sophisticated insecure web application"
+                cookieConsent:
+                  type: object
+                  properties:
+                    message:
+                      type: string
+                      example: "We use cookies to ensure you get the best experience on our website."
+                    dismissText:
+                      type: string
+                      example: "Accept"
+                    linkText:
+                      type: string
+                      example: "Learn more"
+                    linkUrl:
+                      type: string
+                      example: "https://owasp.org/www-project-juice-shop/"
+                securityTxt:
+                  type: object
+                  properties:
+                    contact:
+                      type: string
+                      example: "mailto:security@juice-sh.op"
+                    encryption:
+                      type: string
+                      example: "https://keybase.io/owasp_juiceshop/pgp_keys.asc"
+                    acknowledgements:
+                      type: string
+                      example: "https://hackerone.com/owasp_juiceshop"
+                promotion:
+                  type: object
+                  properties:
+                    video:
+                      type: string
+                      example: "https://www.youtube.com/embed/actBookW7zYQ"
+                    subtitles:
+                      type: string
+                      example: "https://raw.githubusercontent.com/juice-shop/juice-shop/master/frontend/src/assets/public/videos/subtitles.vtt"
+                easterEggPlanet:
+                  type: object
+                  properties:
+                    name:
+                      type: string
+                      example: "Juicy Prime"
+                    overlayMap:
+                      type: string
+                      example: "assets/public/images/planets/juicy_prime.jpg"
+                googleOauth:
+                  type: object
+                  properties:
+                    clientId:
+                      type: string
+                      example: "1005568560502-6hm16le8b3hctd1q2j2rmqpb1aeb6glr.apps.googleusercontent.com"
+                    authorizedRedirects:
+                      type: array
+                      items:
+                        type: object
+                        properties:
+                          uri:
+                            type: string
+                            example: "http://localhost:3000"
+                          proxy:
+                            oneOf:
+                              - type: string
+                              - type: null
+                            example: null
+            challenges:
+              type: object
+              properties:
+                showSolvedNotifications:
+                  type: boolean
+                  example: true
+                showHints:
+                  type: boolean
+                  example: true
+                showMitigations:
+                  type: boolean
+                  example: true
+                codingChallengesEnabled:
+                  type: string
+                  enum: [always, never, tutorial]
+                  example: "always"
+                restrictToTutorialsFirst:
+                  type: boolean
+                  example: false
+                safetyMode:
+                  type: string
+                  enum: [safe, unsafe]
+                  example: "unsafe"
+                overwriteUrlForProductTamperingChallenge:
+                  type: string
+                  example: ""
+                showFeedbackButtons:
+                  type: boolean
+                  example: true
+            hackingInstructor:
+              type: object
+              properties:
+                isEnabled:
+                  type: boolean
+                  example: true
+                avatarImage:
+                  type: string
+                  example: "assets/public/images/hackingInstructor/hacker.png"
+            products:
+              type: array
+              description: Product configuration array
+              items:
+                type: object
+            memories:
+              type: array
+              description: Memory configuration array
+              items:
+                type: object
+            ctf:
+              type: object
+              properties:
+                showFlagsInNotifications:
+                  type: boolean
+                  example: true
+                showCountryDetailsInNotifications:
+                  type: string
+                  enum: [none, flag, name]
+                  example: "none"
+                countryMapping:
+                  type: array
+                  description: Country mapping for CTF
+                  items:
+                    type: object
+      required:
+        - config
+
+    ContinueCodeResponse:
+      type: object
+      properties:
+        continueCode:
+          oneOf:
+            - type: string
+            - type: null
+          description: Hashid-encoded continue code or undefined if no progress
+          example: "yXjv6Z5jWJnzD6a3YvmwPRXK7roAyzHDde2Og19yEN84plqxkMBbLVQrDeoY"
+      required:
+        - continueCode
+
+    RestoreProgressResponse:
+      type: object
+      properties:
+        data:
+          type: string
+          description: Success message with number of restored challenges
+          example: "2 solved challenges have been restored."
+      required:
+        - data
+
+    SubmitKeyRequest:
+      type: object
+      required:
+        - privateKey
+      properties:
+        privateKey:
+          type: string
+          description: Ethereum private key (64 character hex string)
+          pattern: '^0x[a-fA-F0-9]{64}$'
+          example: "0x1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef"
+      additionalProperties: false
+
+    SubmitKeySuccessResponse:
+      type: object
+      properties:
+        success:
+          type: boolean
+          description: Whether the challenge was solved successfully
+          example: true
+        message:
+          type: string
+          description: Success message
+          example: "Challenge successfully solved"
+        status:
+          $ref: '#/components/schemas/ChallengeStatus'
+      required:
+        - success
+        - message
+        - status
+
+    SubmitKeyErrorResponse:
+      type: object
+      properties:
+        success:
+          type: boolean
+          description: Whether the challenge was solved successfully
+          example: false
+        message:
+          type: string
+          description: Error message explaining why the key was invalid
+          example: "Looks like you entered the public address of my ethereum wallet!"
+        status:
+          $ref: '#/components/schemas/ChallengeStatus'
+      required:
+        - success
+        - message
+        - status
+
+    NftUnlockedResponse:
+      type: object
+      properties:
+        status:
+          type: boolean
+          description: Whether the NFT unlock challenge has been solved
+          example: true
+      required:
+        - status
+
+    NftMintListenerResponse:
+      type: object
+      properties:
+        success:
+          type: boolean
+          description: Whether the event listener was created successfully
+          example: true
+        message:
+          type: string
+          description: Status message
+          example: "Event Listener Created"
+      required:
+        - success
+        - message
+
+    WalletNFTVerifyRequest:
+      type: object
+      required:
+        - walletAddress
+      properties:
+        walletAddress:
+          type: string
+          description: Ethereum wallet address to verify
+          pattern: '^0x[a-fA-F0-9]{40}$'
+          example: "0x742d35Cc6634C0532925a3b8D4C9db96C4b4d8b6"
+      additionalProperties: false
+
+    WalletNFTVerifyResponse:
+      type: object
+      properties:
+        success:
+          type: boolean
+          description: Whether the wallet has minted an NFT
+          example: true
+        message:
+          type: string
+          description: Status message
+          example: "Challenge successfully solved"
+        status:
+          $ref: '#/components/schemas/ChallengeStatus'
+      required:
+        - success
+        - message
+        - status
+
+    WalletExploitRequest:
+      type: object
+      required:
+        - walletAddress
+      properties:
+        walletAddress:
+          type: string
+          description: Ethereum wallet address to track for exploit events
+          pattern: '^0x[a-fA-F0-9]{40}$'
+          example: "0x742d35Cc6634C0532925a3b8D4C9db96C4b4d8b6"
+      additionalProperties: false
+
+    WalletExploitResponse:
+      type: object
+      properties:
+        success:
+          type: boolean
+          description: Whether the wallet address was registered successfully
+          example: true
+        message:
+          type: string
+          description: Status message
+          example: "Event Listener Created"
+      required:
+        - success
+        - message
+
+    B2BOrderRequest:
+      type: object
+      required:
+        - cid
+      properties:
+        cid:
+          type: string
+          description: Customer ID for the B2B order
+          example: "B2B-001"
+        orderLinesData:
+          type: string
+          description: Optional order lines data for processing
+          example: "console.log('Processing order data')"
+      additionalProperties: false
+
+    B2BOrderResponse:
+      type: object
+      properties:
+        cid:
+          type: string
+          description: Customer ID from the request
+          example: "B2B-001"
+        orderNo:
+          type: string
+          description: Unique order number generated for the order
+          example: "a1b2c3d4e5f6g7h8i9j0"
+        paymentDue:
+          type: string
+          format: date-time
+          description: Payment due date (2 weeks from order creation)
+          example: "2024-01-15T00:00:00.000Z"
+      required:
+        - cid
+        - orderNo
+        - paymentDue
+
+    ChallengeStatus:
+      type: object
+      properties:
+        key:
+          type: string
+          description: Challenge key identifier
+          example: "nftUnlockChallenge"
+        name:
+          type: string
+          description: Challenge display name
+          example: "NFT Unlock"
+        solved:
+          type: boolean
+          description: Whether the challenge has been solved
+          example: true
+      required:
+        - key
+        - name
+        - solved
+
+    ChallengesWithCodeSnippetResponse:
+      type: object
+      properties:
+        challenges:
+          type: array
+          items:
+            type: string
+          description: Array of challenge keys that have code snippets
+          example: ["localXssChallenge", "sqlInjectionChallenge", "xssBonusChallenge"]
+      required:
+        - challenges
+
+    CodeSnippetResponse:
+      type: object
+      properties:
+        snippet:
+          type: string
+          description: The code snippet content
+          example: |
+            function processUserInput(input) {
+              document.getElementById('output').innerHTML = input;
+              console.log('Input processed');
+            }
+      required:
+        - snippet
+
+    VulnLinesRequest:
+      type: object
+      required:
+        - key
+        - selectedLines
+      properties:
+        key:
+          type: string
+          description: Challenge key identifier
+          example: "localXssChallenge"
+        selectedLines:
+          type: array
+          items:
+            type: integer
+          description: Array of line numbers selected by the user
+          example: [2]
+      additionalProperties: false
+
+    VulnLinesResponse:
+      type: object
+      properties:
+        verdict:
+          type: boolean
+          description: Whether the selected lines are correct
+          example: true
+        hint:
+          type: string
+          description: Hint message if the selection is incorrect
+          example: "Line 2 is responsible for this vulnerability or security flaw. Select it and submit to proceed."
+      required:
+        - verdict
+
+    CodeFixesResponse:
+      type: object
+      properties:
+        fixes:
+          type: array
+          items:
+            type: string
+          description: Array of code fix options
+          example:
+            - "function processUserInput(input) {\n  document.getElementById('output').textContent = input;\n  console.log('Input processed');\n}"
+            - "function processUserInput(input) {\n  document.getElementById('output').innerHTML = input;\n  console.log('Input processed');\n}"
+      required:
+        - fixes
+
+    CodeFixRequest:
+      type: object
+      required:
+        - key
+        - selectedFix
+      properties:
+        key:
+          type: string
+          description: Challenge key identifier
+          example: "localXssChallenge"
+        selectedFix:
+          type: integer
+          description: Index of the selected fix (0-based)
+          example: 0
+      additionalProperties: false
+
+    CodeFixResponse:
+      type: object
+      properties:
+        verdict:
+          type: boolean
+          description: Whether the selected fix is correct
+          example: true
+        explanation:
+          type: string
+          description: Explanation of why the fix is correct or incorrect
+          example: "This fix uses textContent instead of innerHTML, preventing XSS attacks."
+      required:
+        - verdict
+
+tags:
+  - name: Authentication
+    description: User authentication operations
+  - name: Password Management
+    description: Password change and reset operations
+  - name: Security Questions
+    description: Security question operations for password reset
+  - name: User Profile
+    description: User profile and information operations
+  - name: Administration
+    description: Administrative operations for user management
+  - name: Products
+    description: Product search and management operations
+  - name: Basket
+    description: Shopping basket operations
+  - name: Orders
+    description: Order placement and management operations
+  - name: Challenges
+    description: Challenge management and progress tracking operations
+  - name: Web3
+    description: Web3 and blockchain-related operations
+  - name: B2B
+    description: Business-to-business order operations
+  - name: Hidden Content
+    description: Hidden content and easter egg endpoints
+  - name: Redirects
+    description: URL redirect operations
+  - name: Video
+    description: Video streaming and promotion content
+  - name: Code Snippets
+    description: Code snippet challenge operations
+
+# --- Juice Shop Custom APIs ---
+
+paths:
+  /rest/continue-code/apply/{continueCode}:
+    put:
+      tags:
+        - Challenges
+      summary: Restore solved challenges from continue code
+      description: |
+        Restore solved challenges using a continue code. The continue code must be a valid hashid-encoded string. Invalid codes will return a 404 error.
+      operationId: applyContinueCode
+      parameters:
+        - name: continueCode
+          in: path
+          description: Continue code for solved challenges
+          required: true
+          schema:
+            type: string
+            pattern: '^[a-zA-Z0-9]+$'
+      responses:
+        '200':
+          description: Progress restored successfully
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: string
+                    example: "2 solved challenges have been restored."
+              examples:
+                success:
+                  summary: Progress restored
+                  value:
+                    data: "2 solved challenges have been restored."
+        '404':
+          description: Invalid continue code
+          content:
+            text/plain:
+              schema:
+                type: string
+              example: "Invalid continue code."
+
+  /rest/captcha:
+    get:
+      tags:
+        - Captcha
+      summary: Get a math captcha
+      description: |
+        Returns a math captcha expression and its ID. Used for feedback and other forms.
+      operationId: getCaptcha
+      responses:
+        '200':
+          description: Captcha generated successfully
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  captchaId:
+                    type: integer
+                    example: 1
+                  captcha:
+                    type: string
+                    example: "3+7-2"
+                  answer:
+                    type: string
+                    example: "8"
+              examples:
+                success:
+                  summary: Captcha example
+                  value:
+                    captchaId: 1
+                    captcha: "3+7-2"
+                    answer: "8"
+
+  /rest/image-captcha:
+    get:
+      tags:
+        - Captcha
+      summary: Get an image captcha
+      description: |
+        Returns an SVG image captcha and its answer for the logged-in user. Used for data export and other protected actions.
+      operationId: getImageCaptcha
+      responses:
+        '200':
+          description: Image captcha generated successfully
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  image:
+                    type: string
+                    format: html
+                    description: SVG image markup
+                  answer:
+                    type: string
+                    description: The answer to the captcha
+                  UserId:
+                    type: integer
+                    description: User ID
+              examples:
+                success:
+                  summary: Image captcha example
+                  value:
+                    image: "<svg>...</svg>"
+                    answer: "abcde"
+                    UserId: 1
+        '401':
+          description: Not logged in
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: string
+                    example: "You need to be logged in to request a CAPTCHA."
+
+  /rest/track-order/{id}:
+    get:
+      tags:
+        - Orders
+      summary: Track order by ID
+      description: |
+        Retrieve tracking information for an order by its ID. Returns order details, products, and delivery status.
+      operationId: trackOrder
+      parameters:
+        - name: id
+          in: path
+          description: Order ID
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Order tracking information
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        orderId:
+                          type: string
+                          example: "5267-f9cd5882f54c75a3"
+                        email:
+                          type: string
+                          example: "us*r@juice-sh.op"
+                        totalPrice:
+                          type: number
+                          example: 9.98
+                        products:
+                          type: array
+                          items:
+                            type: object
+                            properties:
+                              quantity:
+                                type: integer
+                                example: 2
+                              name:
+                                type: string
+                                example: "Raspberry Juice (1000ml)"
+                              price:
+                                type: number
+                                example: 4.99
+                              total:
+                                type: number
+                                example: 9.98
+                              bonus:
+                                type: integer
+                                example: 0
+                        eta:
+                          type: string
+                          example: "3"
+                        bonus:
+                          type: integer
+                          example: 0
+                        delivered:
+                          type: boolean
+                          example: false
+                        _id:
+                          type: string
+                          example: "5f8d0d55b54764421b7156c1"
+              examples:
+                with_products:
+                  summary: Order with products
+                  value:
+                    data:
+                      - orderId: "5267-f9cd5882f54c75a3"
+                        email: "us*r@juice-sh.op"
+                        totalPrice: 9.98
+                        products:
+                          - quantity: 2
+                            name: "Raspberry Juice (1000ml)"
+                            price: 4.99
+                            total: 9.98
+                            bonus: 0
+                        eta: "3"
+                        bonus: 0
+                        delivered: false
+                        _id: "5f8d0d55b54764421b7156c1"
+        '400':
+          description: Invalid parameter
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: string
+                    example: "Wrong Param"
+
+  /rest/country-mapping:
+    get:
+      tags:
+        - Challenges
+      summary: Get CTF country mapping
+      description: |
+        Returns the country mapping for CTF challenges if configured. Returns 500 if not configured.
+      operationId: getCountryMapping
+      responses:
+        '200':
+          description: Country mapping retrieved
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties:
+                  type: object
+                  properties:
+                    name:
+                      type: string
+                      example: "Canada"
+                    code:
+                      type: string
+                      example: "CA"
+              examples:
+                mapping:
+                  summary: Example country mapping
+                  value:
+                    scoreBoardChallenge:
+                      name: "Canada"
+                      code: "CA"
+                    errorHandlingChallenge:
+                      name: "Austria"
+                      code: "AT"
+        '500':
+          description: No country mapping found
+
+  /rest/saveLoginIp:
+    get:
+      tags:
+        - User Profile
+      summary: Save last login IP
+      description: |
+        Saves the last login IP address for the currently authenticated user. Uses the True-Client-IP header if present, otherwise uses the remote address.
+      operationId: saveLoginIp
+      responses:
+        '200':
+          description: Last login IP saved
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  lastLoginIp:
+                    type: string
+                    example: "1.2.3.4"
+              examples:
+                success:
+                  summary: Last login IP saved
+                  value:
+                    lastLoginIp: "1.2.3.4"
+        '401':
+          description: Unauthorized
+
+  /rest/user/data-export:
+    post:
+      tags:
+        - User Profile
+      summary: Export user data
+      description: |
+        Exports the user's data, including orders, reviews, and memories. May require a captcha answer if requested recently.
+      operationId: dataExport
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                format:
+                  type: string
+                  description: Export format (1 = JSON)
+                  example: "1"
+                answer:
+                  type: string
+                  description: Image captcha answer (required if captcha is present)
+                  example: "abcde"
+      responses:
+        '200':
+          description: Data export successful
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  userData:
+                    type: string
+                    description: JSON string of user data
+                  confirmation:
+                    type: string
+                    example: "Your data export will open in a new Browser window."
+              examples:
+                success:
+                  summary: Data export
+                  value:
+                    userData: |
+                      {
+                        "username": "bkimminich",
+                        "email": "bjoern.kimminich@gmail.com",
+                        "orders": [
+                          {
+                            "orderId": "5267-f9cd5882f54c75a3",
+                            "totalPrice": 9.98,
+                            "products": [
+                              {
+                                "quantity": 2,
+                                "name": "Raspberry Juice (1000ml)",
+                                "price": 4.99,
+                                "total": 9.98,
+                                "bonus": 0
+                              }
+                            ],
+                            "bonus": 0,
+                            "eta": "3"
+                          }
+                        ],
+                        "reviews": [
+                          {
+                            "message": "Fresh out of a replicator.",
+                            "author": "jim@juice-sh.op",
+                            "productId": 22,
+                            "likesCount": 0,
+                            "likedBy": ""
+                          }
+                        ],
+                        "memories": [
+                          {
+                            "imageUrl": "http://localhost:3000/assets/public/images/uploads/valid-image-123456.jpg",
+                            "caption": "Valid Image"
+                          }
+                        ]
+                      }
+                    confirmation: "Your data export will open in a new Browser window."
+        '401':
+          description: Unauthorized
+        '500':
+          description: Internal server error
+
+  /rest/languages:
+    get:
+      tags:
+        - Localization
+      summary: Get available languages
+      description: |
+        Returns a list of available languages, their codes, icons, and translation completion percentage.
+      operationId: getLanguages
+      responses:
+        '200':
+          description: Languages retrieved
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  type: object
+                  properties:
+                    key:
+                      type: string
+                      example: "en"
+                    lang:
+                      type: string
+                      example: "English"
+                    icons:
+                      type: array
+                      items:
+                        type: string
+                      example: ["gb", "us"]
+                    percentage:
+                      type: number
+                      example: 100
+                    shortKey:
+                      type: string
+                      example: "EN"
+                    gauge:
+                      type: string
+                      example: "full"
+              examples:
+                languages:
+                  summary: Languages list
+                  value:
+                    - key: "en"
+                      lang: "English"
+                      icons: ["gb", "us"]
+                      percentage: 100
+                      shortKey: "EN"
+                      gauge: "full"
+                    - key: "de_DE"
+                      lang: "Deutsch"
+                      icons: ["de"]
+                      percentage: 98
+                      shortKey: "DE"
+                      gauge: "full"
+
+  /rest/order-history:
+    get:
+      tags:
+        - Orders
+      summary: Get order history for current user
+      description: |
+        Returns a list of orders for the currently authenticated user.
+      operationId: getOrderHistory
+      responses:
+        '200':
+          description: Order history retrieved
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: string
+                    example: "success"
+                  data:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        orderId:
+                          type: string
+                          example: "5267-f9cd5882f54c75a3"
+                        totalPrice:
+                          type: number
+                          example: 9.98
+                        bonus:
+                          type: integer
+                          example: 0
+                        delivered:
+                          type: boolean
+                          example: false
+                        products:
+                          type: array
+                          items:
+                            type: object
+                            properties:
+                              name:
+                                type: string
+                                example: "Raspberry Juice (1000ml)"
+                              quantity:
+                                type: integer
+                                example: 2
+                              price:
+                                type: number
+                                example: 4.99
+                              total:
+                                type: number
+                                example: 9.98
+              examples:
+                history:
+                  summary: Order history
+                  value:
+                    status: "success"
+                    data:
+                      - orderId: "5267-f9cd5882f54c75a3"
+                        totalPrice: 9.98
+                        bonus: 0
+                        delivered: false
+                        products:
+                          - name: "Raspberry Juice (1000ml)"
+                            quantity: 2
+                            price: 4.99
+                            total: 9.98
+
+  /rest/order-history/orders:
+    get:
+      tags:
+        - Orders
+      summary: Get all orders (accounting role)
+      description: |
+        Returns all orders in the system. Requires accounting role.
+      operationId: getAllOrders
+      responses:
+        '200':
+          description: All orders retrieved
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: string
+                    example: "success"
+                  data:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        orderId:
+                          type: string
+                          example: "5267-f9cd5882f54c75a3"
+                        totalPrice:
+                          type: number
+                          example: 9.98
+                        bonus:
+                          type: integer
+                          example: 0
+                        delivered:
+                          type: boolean
+                          example: false
+                        products:
+                          type: array
+                          items:
+                            type: object
+                            properties:
+                              name:
+                                type: string
+                                example: "Raspberry Juice (1000ml)"
+                              quantity:
+                                type: integer
+                                example: 2
+                              price:
+                                type: number
+                                example: 4.99
+                              total:
+                                type: number
+                                example: 9.98
+              examples:
+                all_orders:
+                  summary: All orders
+                  value:
+                    status: "success"
+                    data:
+                      - orderId: "5267-f9cd5882f54c75a3"
+                        totalPrice: 9.98
+                        bonus: 0
+                        delivered: false
+                        products:
+                          - name: "Raspberry Juice (1000ml)"
+                            quantity: 2
+                            price: 4.99
+                            total: 9.98
+
+  /rest/order-history/{id}/delivery-status:
+    put:
+      tags:
+        - Orders
+      summary: Update delivery status (accounting role)
+      description: |
+        Updates the delivery status of an order. Requires accounting role.
+      operationId: updateDeliveryStatus
+      parameters:
+        - name: id
+          in: path
+          description: Order ID
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                delivered:
+                  type: boolean
+                  description: Delivery status
+                  example: true
+      responses:
+        '200':
+          description: Delivery status updated
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: string
+                    example: "success"
+                  data:
+                    type: object
+                    properties:
+                      orderId:
+                        type: string
+                        example: "5267-f9cd5882f54c75a3"
+                      delivered:
+                        type: boolean
+                        example: true
+              examples:
+                updated:
+                  summary: Delivery status updated
+                  value:
+                    status: "success"
+                    data:
+                      orderId: "5267-f9cd5882f54c75a3"
+                      delivered: true
+
+# --- Juice Shop Custom APIs (Wallet, Deluxe, Memories, Chatbot, Product Reviews) ---
+
+  /rest/wallet/balance:
+    get:
+      tags:
+        - Wallet
+      summary: Get wallet balance
+      description: |
+        Returns the current balance of the authenticated user's wallet.
+      operationId: getWalletBalance
+      responses:
+        '200':
+          description: Wallet balance retrieved
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: string
+                    example: "success"
+                  data:
+                    type: number
+                    example: 100
+              examples:
+                success:
+                  summary: Wallet balance
+                  value:
+                    status: "success"
+                    data: 100
+        '404':
+          description: Wallet not found
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: string
+                    example: "error"
+    put:
+      tags:
+        - Wallet
+      summary: Add balance to wallet
+      description: |
+        Adds the specified amount to the authenticated user's wallet using a payment method.
+      operationId: addWalletBalance
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                paymentId:
+                  type: string
+                  description: Payment method ID
+                  example: "1"
+                balance:
+                  type: number
+                  description: Amount to add
+                  example: 50
+      responses:
+        '200':
+          description: Balance added successfully
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: string
+                    example: "success"
+                  data:
+                    type: number
+                    example: 50
+              examples:
+                success:
+                  summary: Balance added
+                  value:
+                    status: "success"
+                    data: 50
+        '402':
+          description: Payment not accepted
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: string
+                    example: "error"
+                  message:
+                    type: string
+                    example: "Payment not accepted."
+        '404':
+          description: Wallet not found
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: string
+                    example: "error"
+
+  /rest/deluxe-membership:
+    get:
+      tags:
+        - Deluxe
+      summary: Get deluxe membership status
+      description: |
+        Returns the cost of deluxe membership if eligible, or an error if already a deluxe member or not eligible.
+      operationId: getDeluxeMembershipStatus
+      responses:
+        '200':
+          description: Eligible for deluxe membership
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: string
+                    example: "success"
+                  data:
+                    type: object
+                    properties:
+                      membershipCost:
+                        type: number
+                        example: 49
+              examples:
+                eligible:
+                  summary: Eligible for deluxe membership
+                  value:
+                    status: "success"
+                    data:
+                      membershipCost: 49
+        '400':
+          description: Already a deluxe member or not eligible
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: string
+                    example: "error"
+                  error:
+                    type: string
+                    example: "You are already a deluxe member!"
+    post:
+      tags:
+        - Deluxe
+      summary: Upgrade to deluxe membership
+      description: |
+        Upgrades the authenticated user to deluxe membership using wallet or card payment.
+      operationId: upgradeToDeluxe
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                paymentMode:
+                  type: string
+                  enum: [wallet, card]
+                  description: Payment mode
+                  example: "wallet"
+                paymentId:
+                  type: string
+                  description: Card ID (if paymentMode is card)
+                  example: "1"
+      responses:
+        '200':
+          description: Upgraded to deluxe membership
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: string
+                    example: "success"
+                  data:
+                    type: object
+                    properties:
+                      confirmation:
+                        type: string
+                        example: "Congratulations! You are now a deluxe member!"
+                      token:
+                        type: string
+                        description: New JWT token
+                        example: "eyJhbGci..."
+              examples:
+                success:
+                  summary: Upgraded to deluxe
+                  value:
+                    status: "success"
+                    data:
+                      confirmation: "Congratulations! You are now a deluxe member!"
+                      token: "eyJhbGci..."
+        '400':
+          description: Error upgrading
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: string
+                    example: "error"
+                  error:
+                    type: string
+                    example: "Insuffienct funds in Wallet"
+
+  /rest/memories:
+    get:
+      tags:
+        - Memories
+      summary: Get all memories
+      description: |
+        Returns all uploaded memories (images and captions) for all users.
+      operationId: getMemories
+      responses:
+        '200':
+          description: Memories retrieved
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: string
+                    example: "success"
+                  data:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        id:
+                          type: integer
+                          example: 1
+                        caption:
+                          type: string
+                          example: "My favorite place!"
+                        imagePath:
+                          type: string
+                          example: "assets/public/images/uploads/photo.jpg"
+                        UserId:
+                          type: integer
+                          example: 2
+                        User:
+                          type: object
+                          properties:
+                            id:
+                              type: integer
+                              example: 2
+                            email:
+                              type: string
+                              example: "user@juice-sh.op"
+              examples:
+                memories:
+                  summary: Memories list
+                  value:
+                    status: "success"
+                    data:
+                      - id: 1
+                        caption: "My favorite place!"
+                        imagePath: "assets/public/images/uploads/photo.jpg"
+                        UserId: 2
+                        User:
+                          id: 2
+                          email: "user@juice-sh.op"
+
+  /rest/chatbot/status:
+    get:
+      tags:
+        - Chatbot
+      summary: Get chatbot status
+      description: |
+        Returns the status and greeting of the chatbot for the current user.
+      operationId: getChatbotStatus
+      responses:
+        '200':
+          description: Chatbot status
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: boolean
+                    example: true
+                  body:
+                    type: string
+                    example: "Hello, how can I help you today?"
+              examples:
+                ready:
+                  summary: Chatbot ready
+                  value:
+                    status: true
+                    body: "Hello, how can I help you today?"
+                not_ready:
+                  summary: Chatbot not ready
+                  value:
+                    status: false
+                    body: "JuicyBot isn't ready at the moment, please wait while I set things up"
+        '401':
+          description: Unauthenticated user
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: string
+                    example: "Unauthenticated user"
+
+  /rest/chatbot/respond:
+    post:
+      tags:
+        - Chatbot
+      summary: Send a message to the chatbot
+      description: |
+        Sends a message to the chatbot and returns its response.
+      operationId: chatbotRespond
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                action:
+                  type: string
+                  enum: [query, setname]
+                  description: Action type
+                  example: "query"
+                query:
+                  type: string
+                  description: User's message to the chatbot
+                  example: "What is your name?"
+                name:
+                  type: string
+                  description: Name to set (if action is setname)
+                  example: "Alice"
+      responses:
+        '200':
+          description: Chatbot response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  action:
+                    type: string
+                    example: "response"
+                  body:
+                    type: string
+                    example: "Hello, Alice!"
+              examples:
+                response:
+                  summary: Chatbot response
+                  value:
+                    action: "response"
+                    body: "Hello, Alice!"
+                namequery:
+                  summary: Chatbot asks for name
+                  value:
+                    action: "namequery"
+                    body: "I'm sorry I didn't get your name. What shall I call you?"
+        '400':
+          description: Unauthenticated user
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: string
+                    example: "Unauthenticated user"
+
+  /rest/products/{id}/reviews:
+    get:
+      tags:
+        - Product Reviews
+      summary: Get reviews for a product
+      description: |
+        Returns all reviews for the specified product.
+      operationId: getProductReviews
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+          description: Product ID
+      responses:
+        '200':
+          description: Product reviews retrieved
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  type: object
+                  properties:
+                    message:
+                      type: string
+                      example: "Great product!"
+                    author:
+                      type: string
+                      example: "user@juice-sh.op"
+                    liked:
+                      type: boolean
+                      example: false
+                    likedBy:
+                      type: array
+                      items:
+                        type: string
+                      example: ["user@juice-sh.op"]
+                    likesCount:
+                      type: integer
+                      example: 1
+      put:
+      tags:
+        - Product Reviews
+      summary: Add a review for a product
+      description: |
+        Adds a new review for the specified product.
+      operationId: addProductReview
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+          description: Product ID
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                message:
+                  type: string
+                  description: Review message
+                  example: "Great product!"
+                author:
+                  type: string
+                  description: Author's email
+                  example: "user@juice-sh.op"
+      responses:
+        '201':
+          description: Review created
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: string
+                    example: "success"
+              examples:
+                created:
+                  summary: Review created
+                  value:
+                    status: "success"
+        '500':
+          description: Error creating review
+          content:
+            application/json:
+              schema:
+                type: string
+
+  /rest/products/reviews:
+    patch:
+      tags:
+        - Product Reviews
+      summary: Update a product review
+      description: |
+        Updates the message of a product review. Requires authentication.
+      operationId: updateProductReview
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                id:
+                  type: string
+                  description: Review ID
+                  example: "abc123"
+                message:
+                  type: string
+                  description: New review message
+                  example: "Updated review message."
+      responses:
+        '200':
+          description: Review updated
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  modified:
+                    type: integer
+                    example: 1
+                  original:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        author:
+                          type: string
+                          example: "user@juice-sh.op"
+              examples:
+                updated:
+                  summary: Review updated
+                  value:
+                    modified: 1
+                    original:
+                      - author: "user@juice-sh.op"
+        '500':
+          description: Error updating review
+          content:
+            application/json:
+              schema:
+                type: string
+    post:
+      tags:
+        - Product Reviews
+      summary: Like a product review
+      description: |
+        Likes a product review by ID. Requires authentication.
+      operationId: likeProductReview
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                id:
+                  type: string
+                  description: Review ID
+                  example: "abc123"
+      responses:
+        '200':
+          description: Review liked
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  n:
+                    type: integer
+                    example: 1
+                  nModified:
+                    type: integer
+                    example: 1
+                  ok:
+                    type: integer
+                    example: 1
+              examples:
+                liked:
+                  summary: Review liked
+                  value:
+                    n: 1
+                    nModified: 1
+                    ok: 1
+        '401':
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: string
+                    example: "Unauthorized"
+        '404':
+          description: Review not found
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: string
+                    example: "Not found"
+        '403':
+          description: Not allowed (already liked)
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: string
+                    example: "Not allowed"
+        '400':
+          description: Wrong parameters
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: string
+                    example: "Wrong Params"
+        '500':
+          description: Error liking review
+          content:
+            application/json:
+              schema:
+                type: string
+
+# --- Juice Shop Web3 APIs ---
+
+  /rest/web3/submitKey:
+    post:
+      tags:
+        - Web3
+      summary: Submit private key for NFT unlock challenge
+      description: |
+        Submit a private key to unlock an NFT challenge. The endpoint validates the provided
+        private key against a predefined mnemonic wallet and solves the challenge if correct.
+        
+        **Security Note**: This endpoint is used for educational purposes to demonstrate
+        private key management in Web3 applications.
+      operationId: submitPrivateKey
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SubmitKeyRequest'
+            examples:
+              valid_private_key:
+                summary: Valid private key
+                value:
+                  privateKey: "0x1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef"
+              invalid_private_key:
+                summary: Invalid private key
+                value:
+                  privateKey: "invalid_key"
+      responses:
+        '200':
+          description: Challenge solved successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SubmitKeySuccessResponse'
+              examples:
+                success:
+                  summary: Challenge solved
+                  value:
+                    success: true
+                    message: "Challenge successfully solved"
+                    status:
+                      key: "nftUnlockChallenge"
+                      name: "NFT Unlock"
+                      solved: true
+        '401':
+          description: Invalid private key
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SubmitKeyErrorResponse'
+              examples:
+                wrong_address:
+                  summary: Public address provided instead of private key
+                  value:
+                    success: false
+                    message: "Looks like you entered the public address of my ethereum wallet!"
+                    status:
+                      key: "nftUnlockChallenge"
+                      name: "NFT Unlock"
+                      solved: false
+                wrong_public_key:
+                  summary: Public key provided instead of private key
+                  value:
+                    success: false
+                    message: "Looks like you entered the public key of my ethereum wallet!"
+                    status:
+                      key: "nftUnlockChallenge"
+                      name: "NFT Unlock"
+                      solved: false
+                invalid_key:
+                  summary: Non-Ethereum private key
+                  value:
+                    success: false
+                    message: "Looks like you entered a non-Ethereum private key to access me."
+                    status:
+                      key: "nftUnlockChallenge"
+                      name: "NFT Unlock"
+                      solved: false
+        '500':
+          description: Internal server error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /rest/web3/nftUnlocked:
+    get:
+      tags:
+        - Web3
+      summary: Check NFT unlock challenge status
+      description: |
+        Check whether the NFT unlock challenge has been solved.
+        
+        Returns the current status of the challenge without requiring any authentication.
+      operationId: checkNftUnlocked
+      responses:
+        '200':
+          description: Challenge status retrieved successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/NftUnlockedResponse'
+              examples:
+                solved:
+                  summary: Challenge solved
+                  value:
+                    status: true
+                not_solved:
+                  summary: Challenge not solved
+                  value:
+                    status: false
+        '500':
+          description: Internal server error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /rest/web3/nftMintListen:
+    get:
+      tags:
+        - Web3
+      summary: Start NFT mint event listener
+      description: |
+        Initialize an event listener for NFT minting events on the blockchain.
+        
+        This endpoint sets up a WebSocket connection to listen for NFT mint events
+        from a specific smart contract address on the Sepolia testnet.
+        
+        **Note**: The event listener is created only once per server instance.
+      operationId: startNftMintListener
+      responses:
+        '200':
+          description: Event listener created successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/NftMintListenerResponse'
+              examples:
+                success:
+                  summary: Listener created
+                  value:
+                    success: true
+                    message: "Event Listener Created"
+        '500':
+          description: Internal server error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /rest/web3/walletNFTVerify:
+    post:
+      tags:
+        - Web3
+      summary: Verify wallet has minted NFT
+      description: |
+        Verify if a specific wallet address has successfully minted an NFT.
+        
+        This endpoint checks if the provided wallet address has been recorded
+        as having minted an NFT through the event listener.
+      operationId: verifyWalletNft
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/WalletNFTVerifyRequest'
+            examples:
+              valid_wallet:
+                summary: Valid wallet address
+                value:
+                  walletAddress: "0x742d35Cc6634C0532925a3b8D4C9db96C4b4d8b6"
+      responses:
+        '200':
+          description: Verification completed
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/WalletNFTVerifyResponse'
+              examples:
+                success:
+                  summary: NFT minted successfully
+                  value:
+                    success: true
+                    message: "Challenge successfully solved"
+                    status:
+                      key: "nftMintChallenge"
+                      name: "NFT Mint"
+                      solved: true
+                not_minted:
+                  summary: NFT not minted
+                  value:
+                    success: false
+                    message: "Wallet did not mint the NFT"
+                    status:
+                      key: "nftMintChallenge"
+                      name: "NFT Mint"
+                      solved: false
+        '500':
+          description: Internal server error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /rest/web3/walletExploitAddress:
+    post:
+      tags:
+        - Web3
+      summary: Submit wallet address for contract exploit challenge
+      description: |
+        Submit a wallet address to participate in the Web3 wallet exploit challenge.
+        
+        This endpoint adds the wallet address to a tracking set and sets up an event
+        listener for contract exploitation events on the blockchain.
+        
+        **Security Note**: This endpoint is used for educational purposes to demonstrate
+        smart contract security vulnerabilities.
+      operationId: submitWalletExploitAddress
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/WalletExploitRequest'
+            examples:
+              wallet_address:
+                summary: Wallet address
+                value:
+                  walletAddress: "0x742d35Cc6634C0532925a3b8D4C9db96C4b4d8b6"
+      responses:
+        '200':
+          description: Wallet address registered successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/WalletExploitResponse'
+              examples:
+                success:
+                  summary: Address registered
+                  value:
+                    success: true
+                    message: "Event Listener Created"
+        '500':
+          description: Internal server error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+# --- Juice Shop B2B API ---
+
+  /b2b/v2/orders:
+    post:
+      tags:
+        - B2B
+      summary: Create B2B order
+      description: |
+        Create a new B2B order with optional order lines data processing.
+        
+        This endpoint accepts order data and can process order lines using a sandboxed
+        evaluation environment. The endpoint is protected by authentication and may
+        have additional security challenges enabled.
+        
+        **Security Note**: This endpoint includes a sandboxed evaluation environment
+        that may be vulnerable to certain types of attacks for educational purposes.
+      operationId: createB2BOrder
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/B2BOrderRequest'
+            examples:
+              simple_order:
+                summary: Simple order without processing
+                value:
+                  cid: "B2B-001"
+                  orderLinesData: ""
+              complex_order:
+                summary: Order with data processing
+                value:
+                  cid: "B2B-002"
+                  orderLinesData: "console.log('Processing order data')"
+      responses:
+        '200':
+          description: Order created successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/B2BOrderResponse'
+              examples:
+                success:
+                  summary: Order created
+                  value:
+                    cid: "B2B-001"
+                    orderNo: "a1b2c3d4e5f6g7h8i9j0"
+                    paymentDue: "2024-01-15T00:00:00.000Z"
+        '401':
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '503':
+          description: Service temporarily unavailable
+          content:
+            text/plain:
+              schema:
+                type: string
+              example: "Sorry, we are temporarily not available! Please try again later."
+        '500':
+          description: Internal server error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+# --- Juice Shop Hidden Content APIs ---
+
+  /the/devs/are/so/funny/they/hid/an/easter/egg/within/the/easter/egg:
+    get:
+      tags:
+        - Hidden Content
+      summary: Access nested easter egg
+      description: |
+        Access a hidden easter egg content that is nested within another easter egg.
+        
+        This endpoint serves a Three.js demo HTML file and automatically solves
+        the "Nested Easter Egg" challenge when accessed.
+        
+        **Note**: This is a hidden endpoint used for challenge purposes.
+      operationId: getNestedEasterEgg
+      responses:
+        '200':
+          description: Easter egg content served successfully
+          content:
+            text/html:
+              schema:
+                type: string
+              example: |
+                <!DOCTYPE html>
+                <html>
+                <head>
+                  <title>Welcome to Planet Orangeuze</title>
+                </head>
+                <body>
+                  <h1>Welcome to Planet Orangeuze</h1>
+                  <!-- Three.js demo content -->
+                </body>
+                </html>
+
+  /this/page/is/hidden/behind/an/incredibly/high/paywall/that/could/only/be/unlocked/by/sending/1btc/to/us:
+    get:
+      tags:
+        - Hidden Content
+      summary: Access premium content behind paywall
+      description: |
+        Access premium content that is supposedly hidden behind a high paywall.
+        
+        This endpoint serves a high-resolution Juice Shop wallpaper image and
+        automatically solves the "Premium Paywall" challenge when accessed.
+        
+        **Note**: This is a hidden endpoint used for challenge purposes.
+      operationId: getPremiumContent
+      responses:
+        '200':
+          description: Premium content served successfully
+          content:
+            image/jpeg:
+              schema:
+                type: string
+                format: binary
+              description: High-resolution Juice Shop wallpaper image
+
+  /we/may/also/instruct/you/to/refuse/all/reasonably/necessary/responsibility:
+    get:
+      tags:
+        - Hidden Content
+      summary: Access privacy policy proof
+      description: |
+        Access a "thank you" image that serves as proof of reading the privacy policy.
+        
+        This endpoint serves a thank you image and automatically solves the
+        "Privacy Policy Inspection" challenge when accessed.
+        
+        **Note**: This is a hidden endpoint used for challenge purposes.
+      operationId: getPrivacyPolicyProof
+      responses:
+        '404':
+          description: Privacy policy proof not found
+          content:
+            text/html:
+              schema:
+                type: string
+              example: |
+                <h1>OWASP Juice Shop (Express 4.18.2)</h1>
+                <h2>Error: Cannot GET /we/may/also/instruct/you/to/refuse/all/reasonably/necessary/responsibility</h2>
+
+# --- Juice Shop Redirect, Video, Profile, and Code Snippet APIs ---
+
+  /redirect:
+    get:
+      tags:
+        - Redirects
+      summary: Perform redirect to external URL
+      description: |
+        Redirects the user to an external URL specified in the query parameter.
+        
+        This endpoint validates the target URL against an allowlist and performs
+        the redirect if allowed. It also tracks specific cryptocurrency-related
+        redirects for challenge purposes.
+        
+        **Security Note**: This endpoint is used for educational purposes to demonstrate
+        open redirect vulnerabilities and proper URL validation.
+      operationId: performRedirect
+      parameters:
+        - name: to
+          in: query
+          description: Target URL for redirect
+          required: true
+          schema:
+            type: string
+            format: uri
+          examples:
+            allowed_url:
+              summary: Allowed URL
+              value: "https://owasp.org/www-project-juice-shop/"
+            crypto_url:
+              summary: Cryptocurrency URL (for challenge)
+              value: "https://explorer.dash.org/address/Xr556RzuwX6hg5EGpkybbv5RanJoZN17kW"
+            disallowed_url:
+              summary: Disallowed URL
+              value: "https://malicious-site.com"
+      responses:
+        '302':
+          description: Redirect to target URL
+          headers:
+            Location:
+              description: Target URL for redirect
+              schema:
+                type: string
+                example: "https://owasp.org/www-project-juice-shop/"
+        '406':
+          description: Unrecognized target URL
+          content:
+            text/html:
+              schema:
+                type: string
+              example: |
+                <h1>OWASP Juice Shop (Express 4.18.2)</h1>
+                <h2>Error: Unrecognized target URL for redirect: https://malicious-site.com</h2>
+
+  /promotion:
+    get:
+      tags:
+        - Video
+      summary: Get promotion video page
+      description: |
+        Serves a promotional video page with embedded video player and subtitles.
+        
+        This endpoint renders a Pug template with the promotion video and includes
+        subtitle support. The page may contain XSS vulnerabilities for educational purposes.
+      operationId: getPromotionVideo
+      responses:
+        '200':
+          description: Promotion video page served successfully
+          content:
+            text/html:
+              schema:
+                type: string
+              example: |
+                <!DOCTYPE html>
+                <html>
+                <head>
+                  <title>OWASP Juice Shop</title>
+                </head>
+                <body>
+                  <h1>Promotion Video</h1>
+                  <video controls>
+                    <source src="/video" type="video/mp4">
+                    <track kind="subtitles" src="owasp_promo.vtt" srclang="en" label="English">
+                  </video>
+                  <script id="subtitle" type="text/vtt" data-label="English" data-lang="en">
+                    <!-- Subtitle content -->
+                  </script>
+                </body>
+                </html>
+
+  /video:
+    get:
+      tags:
+        - Video
+      summary: Stream promotion video
+      description: |
+        Streams the promotion video file with support for HTTP range requests.
+        
+        This endpoint serves the video file with proper headers for video streaming,
+        including support for partial content requests for seeking functionality.
+      operationId: getVideo
+      responses:
+        '200':
+          description: Video streamed successfully
+          content:
+            video/mp4:
+              schema:
+                type: string
+                format: binary
+              description: MP4 video file
+          headers:
+            Content-Length:
+              description: Size of the video file in bytes
+              schema:
+                type: integer
+                example: 1048576
+            Content-Type:
+              description: Video MIME type
+              schema:
+                type: string
+                example: "video/mp4"
+        '206':
+          description: Partial content (range request)
+          content:
+            video/mp4:
+              schema:
+                type: string
+                format: binary
+              description: Partial MP4 video file
+          headers:
+            Content-Range:
+              description: Range of bytes being served
+              schema:
+                type: string
+                example: "bytes 0-1023/1048576"
+            Accept-Ranges:
+              description: Indicates range requests are supported
+              schema:
+                type: string
+                example: "bytes"
+            Content-Length:
+              description: Size of the partial content
+              schema:
+                type: integer
+                example: 1024
+
+  /profile:
+    get:
+      tags:
+        - User Profile
+      summary: Get user profile page
+      description: |
+        Serves the user profile page for authenticated users.
+        
+        This endpoint renders a Pug template with user information including
+        username, email hash, and profile image. The page includes Content Security
+        Policy headers and may contain XSS vulnerabilities for educational purposes.
+        
+        **Security Note**: Requires authentication via JWT token in cookies.
+      operationId: getUserProfile
+      security:
+        - cookieAuth: []
+      responses:
+        '200':
+          description: User profile page served successfully
+          content:
+            text/html:
+              schema:
+                type: string
+              example: |
+                <!DOCTYPE html>
+                <html>
+                <head>
+                  <title>OWASP Juice Shop - Profile</title>
+                </head>
+                <body>
+                  <h1>User Profile</h1>
+                  <p>Username: <span id="username">user123</span></p>
+                  <p>Email: user@juice-sh.op</p>
+                  <img src="/assets/public/images/uploads/profile.jpg" alt="Profile">
+                </body>
+                </html>
+          headers:
+            Content-Security-Policy:
+              description: CSP header for the profile page
+              schema:
+                type: string
+                example: "img-src 'self' /assets/public/images/uploads/profile.jpg; script-src 'self' 'unsafe-eval' https://code.getmdl.io http://ajax.googleapis.com"
+        '500':
+          description: Unauthorized or user not found
+          content:
+            text/html:
+              schema:
+                type: string
+              example: |
+                <h1>OWASP Juice Shop (Express 4.18.2)</h1>
+                <h2>Error: Blocked illegal activity by 192.168.1.1</h2>
+    post:
+      tags:
+        - User Profile
+      summary: Update user profile
+      description: |
+        Updates the user's profile information, specifically the username.
+        
+        This endpoint accepts form data to update the user's username and includes
+        CSRF protection checks. It also tracks specific challenge conditions.
+        
+        **Security Note**: Requires authentication and includes CSRF challenge tracking.
+      operationId: updateUserProfile
+      security:
+        - cookieAuth: []
+      requestBody:
+        required: true
+        content:
+          application/x-www-form-urlencoded:
+            schema:
+              type: object
+              required:
+                - username
+              properties:
+                username:
+                  type: string
+                  description: New username for the user
+                  example: "newusername"
+            examples:
+              valid_username:
+                summary: Valid username update
+                value:
+                  username: "newusername"
+              csrf_challenge:
+                summary: CSRF challenge attempt
+                value:
+                  username: "malicious_username"
+      responses:
+        '302':
+          description: Profile updated successfully, redirect to profile page
+          headers:
+            Location:
+              description: Redirect location
+              schema:
+                type: string
+                example: "/profile"
+            Set-Cookie:
+              description: Updated authentication token
+              schema:
+                type: string
+                example: "token=eyJhbGciOiJSUzI1NiIsInR5cCI6IkpXVCJ9...; Path=/; HttpOnly"
+        '500':
+          description: Unauthorized or update failed
+          content:
+            text/html:
+              schema:
+                type: string
+              example: |
+                <h1>OWASP Juice Shop (Express 4.18.2)</h1>
+                <h2>Error: Blocked illegal activity by 192.168.1.1</h2>
+
+  /snippets:
+    get:
+      tags:
+        - Code Snippets
+      summary: Get list of challenges with code snippets
+      description: |
+        Returns a list of all challenges that have associated code snippets
+        for the coding challenge feature.
+        
+        This endpoint provides the available challenges that users can attempt
+        to find vulnerabilities in code and apply fixes.
+      operationId: getChallengesWithCodeSnippet
+      responses:
+        '200':
+          description: List of challenges retrieved successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ChallengesWithCodeSnippetResponse'
+              examples:
+                challenges:
+                  summary: Available coding challenges
+                  value:
+                    challenges:
+                      - "localXssChallenge"
+                      - "sqlInjectionChallenge"
+                      - "xssBonusChallenge"
+
+  /snippets/{challenge}:
+    get:
+      tags:
+        - Code Snippets
+      summary: Get code snippet for specific challenge
+      description: |
+        Retrieves the code snippet for a specific challenge, including
+        the vulnerable lines and neutral lines for educational purposes.
+        
+        This endpoint provides the code that users need to analyze to find
+        security vulnerabilities.
+      operationId: getCodeSnippet
+      parameters:
+        - name: challenge
+          in: path
+          description: Challenge key identifier
+          required: true
+          schema:
+            type: string
+          example: "localXssChallenge"
+      responses:
+        '200':
+          description: Code snippet retrieved successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CodeSnippetResponse'
+              examples:
+                snippet:
+                  summary: Code snippet with vulnerability markers
+                  value:
+                    snippet: |
+                      function processUserInput(input) {
+                        // vuln-code-snippet vuln-line localXssChallenge
+                        document.getElementById('output').innerHTML = input;
+                        // vuln-code-snippet neutral-line localXssChallenge
+                        console.log('Input processed');
+                      }
+        '404':
+          description: Challenge not found or no code snippet available
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              examples:
+                not_found:
+                  summary: Challenge not found
+                  value:
+                    status: "error"
+                    error: "No code challenge for challenge key: invalidChallenge"
+
+  /snippets/verdict:
+    post:
+      tags:
+        - Code Snippets
+      summary: Check vulnerable lines selection
+      description: |
+        Validates the user's selection of vulnerable lines in a code snippet.
+        
+        This endpoint compares the user's selected line numbers against the
+        known vulnerable lines for the challenge and provides feedback.
+        It also tracks progress for the "Find It" phase of coding challenges.
+      operationId: checkVulnLines
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/VulnLinesRequest'
+            examples:
+              correct_selection:
+                summary: Correct line selection
+                value:
+                  key: "localXssChallenge"
+                  selectedLines: [2]
+              incorrect_selection:
+                summary: Incorrect line selection
+                value:
+                  key: "localXssChallenge"
+                  selectedLines: [1, 3]
+      responses:
+        '200':
+          description: Verdict provided successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/VulnLinesResponse'
+              examples:
+                correct:
+                  summary: Correct selection
+                  value:
+                    verdict: true
+                incorrect:
+                  summary: Incorrect selection with hint
+                  value:
+                    verdict: false
+                    hint: "Line 2 is responsible for this vulnerability or security flaw. Select it and submit to proceed."
+        '404':
+          description: Challenge not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              examples:
+                not_found:
+                  summary: Challenge not found
+                  value:
+                    status: "error"
+                    error: "No code challenge for challenge key: invalidChallenge"
+
+  /snippets/fixes/{key}:
+    get:
+      tags:
+        - Code Snippets
+      summary: Get code fixes for challenge
+      description: |
+        Retrieves available code fixes for a specific challenge.
+        
+        This endpoint provides the different code fix options that users can
+        choose from to correct the vulnerability in the code snippet.
+      operationId: getCodeFixes
+      parameters:
+        - name: key
+          in: path
+          description: Challenge key identifier
+          required: true
+          schema:
+            type: string
+          example: "localXssChallenge"
+      responses:
+        '200':
+          description: Code fixes retrieved successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CodeFixesResponse'
+              examples:
+                fixes:
+                  summary: Available code fixes
+                  value:
+                    fixes:
+                      - "function processUserInput(input) {\n  document.getElementById('output').textContent = input;\n  console.log('Input processed');\n}"
+                      - "function processUserInput(input) {\n  document.getElementById('output').innerHTML = input;\n  console.log('Input processed');\n}"
+                      - "function processUserInput(input) {\n  document.getElementById('output').innerHTML = input;\n  console.log('Input processed');\n}"
+        '404':
+          description: No fixes found for challenge
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              examples:
+                no_fixes:
+                  summary: No fixes available
+                  value:
+                    error: "No fixes found for the snippet!"
+
+  /snippets/fixes:
+    post:
+      tags:
+        - Code Snippets
+      summary: Check code fix selection
+      description: |
+        Validates the user's selected code fix for a challenge.
+        
+        This endpoint compares the user's selected fix against the correct
+        fix for the challenge and provides feedback. It also tracks progress
+        for the "Fix It" phase of coding challenges.
+      operationId: checkCorrectFix
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CodeFixRequest'
+            examples:
+              correct_fix:
+                summary: Correct fix selection
+                value:
+                  key: "localXssChallenge"
+                  selectedFix: 0
+              incorrect_fix:
+                summary: Incorrect fix selection
+                value:
+                  key: "localXssChallenge"
+                  selectedFix: 1
+      responses:
+        '200':
+          description: Fix validation completed
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CodeFixResponse'
+              examples:
+                correct:
+                  summary: Correct fix with explanation
+                  value:
+                    verdict: true
+                    explanation: "This fix uses textContent instead of innerHTML, preventing XSS attacks."
+                incorrect:
+                  summary: Incorrect fix with explanation
+                  value:
+                    verdict: false
+                    explanation: "This fix still uses innerHTML which is vulnerable to XSS attacks."
+        '404':
+          description: No fixes found for challenge
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              examples:
+                no_fixes:
+                  summary: No fixes available
+                  value:
+                    error: "No fixes found for the snippet!"
